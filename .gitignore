@@ -1,0 +1,11 @@
+# Office/WPS temporary lock files
+~$*
+
+# Local agent/worktree directories
+.worktrees/
+worktrees/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,21 @@
+[ {
+  "userId" : "red",
+  "passWord" : "123",
+  "nickName" : "红方"
+}, {
+  "userId" : "player1",
+  "passWord" : "123456",
+  "nickName" : "红方"
+}, {
+  "userId" : "ZPJ2",
+  "passWord" : "123456",
+  "nickName" : "ZPJ2"
+}, {
+  "userId" : "ZPJ",
+  "passWord" : "123456",
+  "nickName" : "ZPJ"
+}, {
+  "userId" : "player2",
+  "passWord" : "123456",
+  "nickName" : "黑方"
+} ]

@@ -1,0 +1,566 @@
+# API Design
+
+## 1. Purpose
+This document defines the WebSocket JSON protocol between the browser client and the Spring Boot server.
+
+It is written for both frontend and backend implementation.
+
+The design follows the course public interface document as closely as practical, while keeping only the minimum message set needed for the first playable version.
+
+## 2. Transport
+
+### 2.1 WebSocket URL
+
+Public-compatible default server:
+
+```text
+ws://localhost:8887
+```
+
+For LAN testing, the client may connect to:
+
+```text
+ws://<server-ip>:8887
+```
+
+The root URL follows the course public interface example and is the only supported WebSocket path in the current version.
+
+The frontend must not assume the server is always `localhost`. It should allow the connection URL to be changed for cross-group testing.
+
+### 2.2 Message Format
+
+All messages are UTF-8 JSON objects.
+
+Every message must contain:
+
+```json
+{
+  "messageType": "..."
+}
+```
+
+The value of `messageType` decides how the receiver parses the rest of the fields.
+
+### 2.3 Scope
+
+Implemented in the first version:
+
+- `startMatch`
+- `Ready`
+- `move`
+- `Resign`
+- `matchSuccess`
+- `roomInfo`
+- `gameStart`
+- `moveResult`
+- `timeout`
+- `gameOver`
+- `error`
+
+Optional / not implemented in the first version:
+
+- `Login`
+- `register`
+- `cancelMatch`
+- `requestFirstHand`
+- `ping`
+- `pong`
+- spectator messages
+- chat messages
+
+The server should not crash when receiving an unsupported optional message. It should return `error` with code `4002`.
+
+## 3. Coordinate System
+
+The protocol uses one global server-side board coordinate system.
+
+- Columns are `a` through `i`, left to right.
+- Rows are `0` through `9`.
+- `e0` is the red king position.
+- `e9` is the black king position.
+- Red is the first-hand side and starts at the bottom.
+- Black starts at the top.
+
+The client UI may display "self at bottom" for either player, but all WebSocket messages must use the global server coordinates above.
+
+If the frontend rotates the board for black, it must convert screen coordinates back to global coordinates before sending `move`.
+
+## 4. Piece Types
+
+JSON uses public-interface-style English strings:
+
+```text
+King
+Rook
+Knight
+Cannon
+Pawn
+Guard
+Bishop
+NULL
+```
+
+`NULL` means the receiver should not know the actual hidden piece type.
+
+Internal Java code may use enum or integer mapping, but the WebSocket JSON protocol should use these strings.
+
+Recommended internal mapping:
+
+| Code | JSON | Chinese meaning |
+|---:|---|---|
+| `0` | `King` | king / general |
+| `1` | `Rook` | rook |
+| `2` | `Knight` | knight |
+| `3` | `Cannon` | cannon |
+| `4` | `Pawn` | pawn |
+| `5` | `Guard` | guard |
+| `6` | `Bishop` | bishop |
+
+Do not send these numeric codes in WebSocket JSON unless a peer explicitly agrees. Use the English JSON names for interoperability.
+
+## 5. Color Values
+
+```text
+red
+black
+```
+
+`red` moves first.
+
+## 6. Common Data Structures
+
+### 6.1 Move Object
+
+The external move object follows the course public interface:
+
+```json
+{
+  "fromX": "b",
+  "fromY": 3,
+  "toX": "b",
+  "toY": 4,
+  "isFlip": true
+}
+```
+
+Fields:
+
+| Field | Type | Required | Meaning |
+|---|---:|---:|---|
+| `fromX` | string | yes | source column, `a`-`i` |
+| `fromY` | number | yes | source row, `0`-`9` |
+| `toX` | string | yes | target column, `a`-`i` |
+| `toY` | number | yes | target row, `0`-`9` |
+| `isFlip` | boolean | yes | whether this move causes a hidden piece to become visible |
+
+Client-provided `isFlip` is only a hint. The server remains authoritative.
+
+In-place flip is not allowed. Therefore `fromX/fromY` and `toX/toY` must not be the same square in a legal first-version move.
+
+The moved piece's own reveal type is reported through `flipResult`, matching the public interface.
+
+### 6.2 Board Cell
+
+Used in `initialBoard` and optional board sync fields.
+
+```json
+{
+  "x": "e",
+  "y": 0,
+  "piece": "King",
+  "color": "red",
+  "visible": true
+}
+```
+
+Fields:
+
+| Field | Type | Required | Meaning |
+|---|---:|---:|---|
+| `x` | string | yes | column, `a`-`i` |
+| `y` | number | yes | row, `0`-`9` |
+| `piece` | string | yes | piece type; hidden pieces may use original-square type or `NULL` depending on visibility policy |
+| `color` | string | yes | `red` or `black` |
+| `visible` | boolean | yes | `true` for revealed piece, `false` for hidden piece |
+
+For the first version, clients and server both know the initial hidden-piece layout positions, but not hidden real identities. The server must not send secret hidden real identities before reveal.
+
+When `visible=false`, `piece` means the original-square movement type, not the hidden piece's real reveal type. For example, a hidden piece on `a0` has `piece: "Rook"` because it moves as the original rook square before reveal, but its real reveal type is still unknown.
+
+When `visible=true`, `piece` means the revealed real type.
+
+### 6.3 Player
+
+```json
+{
+  "playerId": "session-1",
+  "color": "red"
+}
+```
+
+The first version does not implement account login. `playerId` can be generated by the server from the WebSocket session.
+
+## 7. Client To Server Messages
+
+### 7.1 startMatch
+
+The client asks to enter matchmaking.
+
+```json
+{
+  "messageType": "startMatch"
+}
+```
+
+Server behavior:
+
+- If no player is waiting, store this client as waiting.
+- If one player is already waiting, create a game room.
+- The first joined player may be assigned red in the first version.
+
+### 7.2 Ready
+
+The client tells the server it is ready after matching.
+
+```json
+{
+  "messageType": "Ready"
+}
+```
+
+First version rule:
+
+- `Ready` is required.
+- After `matchSuccess`, both matched players must send `Ready`.
+- The server sends `gameStart` only after both players are ready.
+
+### 7.3 move
+
+The client submits one move.
+
+```json
+{
+  "messageType": "move",
+  "fromX": "b",
+  "fromY": 3,
+  "toX": "b",
+  "toY": 4,
+  "isFlip": true
+}
+```
+
+Server behavior:
+
+- Validate JSON fields.
+- Validate room and player.
+- Validate turn.
+- Validate chess rule.
+- Apply move only if valid.
+- If the moved piece was hidden, reveal it using server-side state and return `flipResult`.
+- Broadcast successful `moveResult` to both players.
+- Send failed `moveResult` only to the sender.
+
+### 7.4 Resign
+
+The client resigns.
+
+```json
+{
+  "messageType": "Resign"
+}
+```
+
+Server behavior:
+
+- The resigning player loses.
+- The server broadcasts `gameOver`.
+
+## 8. Server To Client Messages
+
+### 8.1 matchSuccess
+
+Sent after the server pairs two clients.
+
+```json
+{
+  "messageType": "matchSuccess",
+  "roomId": "room-1",
+  "opponentId": "session-2",
+  "opponentNickname": "Player 2"
+}
+```
+
+Fields `roomId`, `opponentId`, and `opponentNickname` follow the public interface. Color assignment is not sent here; the client receives color in `gameStart`.
+
+### 8.2 roomInfo
+
+Sent when room preparation state changes before the game starts.
+
+```json
+{
+  "messageType": "roomInfo",
+  "opponentReady": true
+}
+```
+
+First-version behavior:
+
+- `roomInfo` is used during the required `Ready` stage.
+- When one player sends `Ready` first, the server sends `roomInfo` to the opponent.
+- `opponentReady=true` means the other matched player has already sent `Ready`.
+
+### 8.3 gameStart
+
+Sent when a game starts.
+
+```json
+{
+  "messageType": "gameStart",
+  "redPlayerId": "session-1",
+  "blackPlayerId": "session-2",
+  "yourColor": "red",
+  "firstHand": true,
+  "initialBoard": [
+    {
+      "x": "a",
+      "y": 0,
+      "piece": "Rook",
+      "color": "red",
+      "visible": false
+    },
+    {
+      "x": "b",
+      "y": 0,
+      "piece": "Knight",
+      "color": "red",
+      "visible": false
+    },
+    {
+      "x": "e",
+      "y": 0,
+      "piece": "King",
+      "color": "red",
+      "visible": true
+    },
+    {
+      "x": "e",
+      "y": 9,
+      "piece": "King",
+      "color": "black",
+      "visible": true
+    }
+  ]
+}
+```
+
+Server behavior:
+
+- Send one `gameStart` to each player only after both matched players have sent `Ready`.
+- `yourColor` differs per receiver.
+- `firstHand` is `true` for red and `false` for black.
+- `initialBoard` must not reveal hidden real piece identities.
+- `initialBoard` should include all occupied initial squares. Empty squares may be omitted.
+- For hidden pieces in `initialBoard`, `piece` is the original-square movement type.
+
+### 8.4 moveResult
+
+Successful move, broadcast to both players:
+
+```json
+{
+  "messageType": "moveResult",
+  "success": true,
+  "valid": true,
+  "move": {
+    "fromX": "b",
+    "fromY": 3,
+    "toX": "b",
+    "toY": 4,
+    "isFlip": true
+  },
+  "flipResult": "Rook",
+  "capturedPiece": null
+}
+```
+
+Failed move, sent only to the sender:
+
+```json
+{
+  "messageType": "moveResult",
+  "success": false,
+  "valid": false,
+  "code": 2001,
+  "message": "illegal move",
+  "move": {
+    "fromX": "b",
+    "fromY": 3,
+    "toX": "b",
+    "toY": 4,
+    "isFlip": false
+  }
+}
+```
+
+Hidden information rule:
+
+- `capturedPiece` is a project extension field, because the course public-interface base fields do not fully express captured-piece visibility.
+- It is added to satisfy the assignment and Q&A requirement that the capturing side knows a captured hidden piece type while the captured side does not.
+- If no piece was captured, `capturedPiece` is `null`.
+- If a revealed piece was captured, `capturedPiece` is the revealed piece type for both players.
+- If a hidden enemy piece was captured, the capturing side receives its real type in `capturedPiece`.
+- The captured side receives `capturedPiece: "NULL"`.
+- Therefore the server may need to send different `moveResult` payloads to the two players.
+- Strict public-interface clients can ignore `capturedPiece`; the board can still be updated from `move`.
+- `nextTurn` is no longer sent; clients should derive turn flow from accepted moves, `gameStart`, and end messages.
+
+### 8.5 timeout
+
+Sent when a player loses on time.
+
+```json
+{
+  "messageType": "timeout",
+  "loserId": "session-1",
+  "winnerId": "session-2",
+  "reason": "timeout"
+}
+```
+
+Timeout uses server-side time. Client timestamps are not trusted for timeout judgment.
+
+### 8.6 gameOver
+
+Sent when the game ends.
+
+```json
+{
+  "messageType": "gameOver",
+  "winner": "red",
+  "reason": "checkmate",
+  "winnerId": "session-1"
+}
+```
+
+Allowed first-version `reason` values:
+
+```text
+checkmate
+resign
+```
+
+The public interface uses `checkmate` and `resign`. For compatibility, direct king/general capture should be reported externally as `reason: "checkmate"`, even if the server internally records the ending reason as king capture.
+
+### 8.7 error
+
+Protocol-level error message.
+
+```json
+{
+  "messageType": "error",
+  "code": 4001,
+  "message": "JSON format error"
+}
+```
+
+Use `error` for:
+
+- invalid JSON
+- unknown `messageType`
+- missing required fields
+- room not found
+- unsupported optional message
+
+Use `moveResult success=false valid=false` for move-specific failures.
+
+## 9. Error Codes
+
+Reuse public interface codes where possible.
+
+| Code | Meaning | Suggested messageType |
+|---:|---|---|
+| `2001` | illegal move | `moveResult` |
+| `2002` | not this player's turn | `moveResult` |
+| `2003` | timeout | `timeout` or `gameOver` |
+| `3001` | room not found | `error` |
+| `3002` | match failed | `error` |
+| `4001` | JSON format error | `error` |
+| `4002` | unknown or unsupported `messageType` | `error` |
+| `5000` | unexpected server error | `error` |
+
+Business errors should be returned as WebSocket JSON. They should not become HTTP `500` responses during normal play.
+
+## 10. Typical Flows
+
+### 10.1 Match And Start
+
+```text
+Client A -> Server: startMatch
+Server -> Client A: wait or no immediate response
+Client B -> Server: startMatch
+Server -> A/B: matchSuccess
+Client A -> Server: Ready
+Server -> Client B: roomInfo
+Client B -> Server: Ready
+Server -> A/B: gameStart
+```
+
+### 10.2 Legal Move
+
+```text
+Current player -> Server: move
+Server: validate
+Server: apply move
+Server -> both players: moveResult success=true valid=true
+Server: if game ended, send gameOver
+```
+
+### 10.3 Illegal Move
+
+```text
+Current player -> Server: move
+Server: validate and reject
+Server -> sender only: moveResult success=false valid=false code=2001
+Board state remains unchanged
+Turn remains unchanged
+```
+
+### 10.4 Resign
+
+```text
+Player -> Server: Resign
+Server -> both players: gameOver reason=resign
+```
+
+### 10.5 Timeout
+
+```text
+Server timer fires
+Server -> both players: timeout
+Game state ends after the `timeout` message. Do not send a public-incompatible `gameOver reason=timeout` in the first version.
+```
+
+## 11. Compatibility Notes
+
+This first version implements the public interface's core play messages, not all optional account/matching extensions.
+
+Compatible choices:
+
+- Use WebSocket.
+- Use port `8887`.
+- Support the root WebSocket URL `ws://host:8887`.
+- Use JSON.
+- Use `messageType`.
+- Use public-interface message names.
+- Use public-interface move fields: `fromX`, `fromY`, `toX`, `toY`, `isFlip`.
+- Use public-interface piece names.
+- Use public-interface error codes where possible.
+
+Known first-version limits:
+
+- No `Login` / `register`.
+- No account password.
+- No spectator mode.
+- No chat.
+- No public internet deployment requirement.
+- Same-computer demo is valid only because two browser clients still communicate through the server.

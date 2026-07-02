@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>揭棋对弈</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="app">
+    <section id="loginScreen" class="screen active">
+        <div class="login-card">
+            <h1>揭棋对弈</h1>
+            <div class="tabs">
+                <button id="tabLogin" class="tab active">登录</button>
+                <button id="tabRegister" class="tab">注册</button>
+            </div>
+            <div class="form">
+                <input id="userId" type="text" placeholder="用户名" required>
+                <input id="passWord" type="password" placeholder="密码" required>
+                <input id="nickName" type="text" placeholder="昵称（仅注册）">
+                <button id="authButton" type="button">登录</button>
+            </div>
+            <div class="status" id="loginStatus"></div>
+            <div class="connection">
+                <input id="wsUrl" type="text" value="ws://localhost:8887/ws" placeholder="WebSocket地址">
+                <button id="connectButton" type="button">连接服务器</button>
+            </div>
+        </div>
+    </section>
+
+    <section id="gameScreen" class="screen">
+        <div class="game-header">
+            <div class="player-info">
+                <div class="player red" id="redPlayer">红方: 等待...</div>
+                <div class="player black" id="blackPlayer">黑方: 等待...</div>
+            </div>
+            <div class="game-controls">
+                <button id="startMatchButton">开始匹配</button>
+                <button id="cancelMatchButton">取消匹配</button>
+                <button id="readyButton">准备</button>
+                <button id="resignButton">认输</button>
+                <button id="logoutButton">退出登录</button>
+            </div>
+        </div>
+
+        <div class="game-main">
+            <section class="board-container">
+                <div class="board-labels top">
+                    <span>a</span><span>b</span><span>c</span><span>d</span><span>e</span><span>f</span><span>g</span><span>h</span><span>i</span>
+                </div>
+                <div class="board" id="board" aria-label="board"></div>
+                <div class="board-labels bottom">
+                    <span>a</span><span>b</span><span>c</span><span>d</span><span>e</span><span>f</span><span>g</span><span>h</span><span>i</span>
+                </div>
+            </section>
+
+            <section class="game-info">
+                <div class="info-card">
+                    <h3>游戏状态</h3>
+                    <div id="gameStatus">未开始</div>
+                    <div id="currentTurn">等待匹配</div>
+                    <div id="yourColor">你的颜色: 未知</div>
+                    <div id="timeLeft">剩余时间: --:--</div>
+                </div>
+                <div class="info-card">
+                    <h3>操作提示</h3>
+                    <div id="message">点击"开始匹配"寻找对手</div>
+                </div>
+                <div class="info-card">
+                    <h3>走子记录</h3>
+                    <div id="moveLog"></div>
+                </div>
+            </section>
+        </div>
+    </section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
